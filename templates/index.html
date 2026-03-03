@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Packet Analyzer — DPI Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── CSS Variables ── */
+    :root {
+      --bg:       #0d1117;
+      --sidebar:  #161b22;
+      --card:     #1c2128;
+      --card2:    #22272e;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #58a6ff;
+      --accent2:  #3fb950;
+      --warn:     #d29922;
+      --danger:   #f85149;
+      --purple:   #bc8cff;
+      --teal:     #39d353;
+      --radius:   10px;
+      --shadow:   0 4px 24px rgba(0,0,0,.45);
+      --font:     'Segoe UI', system-ui, sans-serif;
+    }
+
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); display: flex; height: 100vh; overflow: hidden; }
+    a { color: var(--accent); text-decoration: none; }
+    button { cursor: pointer; font-family: var(--font); }
+    input, select, textarea { font-family: var(--font); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+    /* ── Layout ── */
+    #sidebar {
+      width: 220px; flex-shrink: 0;
+      background: var(--sidebar);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      padding: 0; overflow: hidden;
+      transition: width .25s;
+    }
+    #sidebar.collapsed { width: 56px; }
+    #sidebar.collapsed .nav-label,
+    #sidebar.collapsed .logo-text,
+    #sidebar.collapsed .sidebar-footer { display: none; }
+
+    .logo-area {
+      padding: 18px 16px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo-icon { color: var(--accent); font-size: 22px; }
+    .logo-text { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
+    .logo-text span { color: var(--accent); }
+
+    nav { flex: 1; padding: 12px 8px; overflow-y: auto; }
+    .nav-section { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; padding: 8px 8px 4px; margin-top: 4px; }
+    #sidebar.collapsed .nav-section { display: none; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 10px; border-radius: var(--radius);
+      color: var(--muted); transition: background .15s, color .15s;
+      cursor: pointer; user-select: none; white-space: nowrap;
+    }
+    .nav-item:hover { background: var(--card2); color: var(--text); }
+    .nav-item.active { background: rgba(88,166,255,.12); color: var(--accent); }
+    .nav-item i { width: 18px; text-align: center; font-size: 15px; }
+    .nav-label { font-size: 13px; }
+
+    .sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      font-size: 11px; color: var(--muted);
+    }
+
+    /* ── Main content ── */
+    #main {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      height: 54px; flex-shrink: 0;
+      background: var(--sidebar);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 20px;
+    }
+    #topbar .toggle-btn { color: var(--muted); background: none; border: none; font-size: 18px; padding: 4px 8px; border-radius: 6px; }
+    #topbar .toggle-btn:hover { color: var(--text); background: var(--card2); }
+    #page-title { font-weight: 600; font-size: 16px; }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    #status-badge {
+      font-size: 12px; padding: 4px 10px; border-radius: 99px;
+      display: flex; align-items: center; gap: 6px;
+      background: var(--card2); color: var(--muted);
+    }
+    #status-badge.running { background: rgba(88,166,255,.15); color: var(--accent); }
+    #status-badge.done    { background: rgba(63,185,80,.15);  color: var(--accent2); }
+    #status-badge.error   { background: rgba(248,81,73,.15);  color: var(--danger); }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+    /* ── Page sections ── */
+    #content { flex: 1; overflow-y: auto; padding: 24px; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Upload zone ── */
+    #upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 54px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      margin-bottom: 28px;
+    }
+    #upload-zone:hover, #upload-zone.drag-over { border-color: var(--accent); background: rgba(88,166,255,.06); }
+    #upload-zone i { font-size: 48px; color: var(--accent); margin-bottom: 14px; display: block; }
+    #upload-zone h3 { font-size: 17px; margin-bottom: 6px; }
+    #upload-zone p { color: var(--muted); font-size: 13px; }
+    #file-input { display: none; }
+    #upload-progress { margin-top: 14px; }
+    .progress-bar-wrap { background: var(--border); border-radius: 99px; height: 6px; overflow: hidden; }
+    .progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--purple)); border-radius: 99px; transition: width .4s; }
+
+    /* ── Cards ── */
+    .cards-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .card-icon { font-size: 22px; margin-bottom: 10px; }
+    .card-value { font-size: 26px; font-weight: 700; letter-spacing: -.5px; margin-bottom: 4px; }
+    .card-label { font-size: 12px; color: var(--muted); }
+    .card.blue .card-icon, .card.blue .card-value { color: var(--accent); }
+    .card.green .card-icon, .card.green .card-value { color: var(--accent2); }
+    .card.orange .card-icon, .card.orange .card-value { color: var(--warn); }
+    .card.red .card-icon, .card.red .card-value { color: var(--danger); }
+    .card.purple .card-icon, .card.purple .card-value { color: var(--purple); }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 15px; font-weight: 600; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-title i { color: var(--accent); }
+
+    /* ── Charts grid ── */
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 28px; }
+    @media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .chart-card h4 { font-size: 13px; color: var(--muted); margin-bottom: 14px; text-transform: uppercase; letter-spacing: .06em; }
+    .chart-wrap { position: relative; height: 230px; }
+
+    /* ── Tables ── */
+    .table-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden; margin-bottom: 28px;
+    }
+    .table-toolbar {
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .table-toolbar h4 { font-size: 14px; font-weight: 600; margin-right: auto; }
+    .search-input {
+      background: var(--card2); border: 1px solid var(--border);
+      color: var(--text); padding: 7px 12px; border-radius: 8px;
+      font-size: 13px; width: 220px; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .filter-select {
+      background: var(--card2); border: 1px solid var(--border);
+      color: var(--text); padding: 7px 10px; border-radius: 8px;
+      font-size: 13px; outline: none;
+    }
+    .filter-select:focus { border-color: var(--accent); }
+    .btn {
+      padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      border: 1px solid transparent; transition: background .15s, opacity .15s;
+    }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-secondary { background: var(--card2); color: var(--text); border-color: var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { opacity: .88; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    .table-wrap { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: var(--card2); padding: 10px 14px; text-align: left;
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .06em;
+      position: sticky; top: 0; z-index: 2;
+    }
+    td { padding: 9px 14px; font-size: 13px; border-top: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,.025); }
+    .tag {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600;
+    }
+    .tag-tcp    { background: rgba(88,166,255,.15); color: var(--accent); }
+    .tag-udp    { background: rgba(188,140,255,.15); color: var(--purple); }
+    .tag-icmp   { background: rgba(210,153,34,.15); color: var(--warn); }
+    .tag-other  { background: rgba(139,148,158,.15); color: var(--muted); }
+    .tag-forward { background: rgba(63,185,80,.15); color: var(--accent2); }
+    .tag-drop   { background: rgba(248,81,73,.15); color: var(--danger); }
+    .tag-app    { background: rgba(88,166,255,.1); color: var(--accent); }
+    .tag-flag   { background: rgba(139,148,158,.12); color: var(--muted); margin: 1px; }
+    .badge-blocked { background: var(--danger); color: #fff; border-radius: 4px; padding: 2px 6px; font-size: 11px; }
+
+    /* ── Pagination ── */
+    .pagination { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+    .pagination button { background: var(--card2); border: 1px solid var(--border); color: var(--text); padding: 5px 10px; border-radius: 6px; font-size: 12px; }
+    .pagination button:hover { background: var(--border); }
+    .pagination button:disabled { opacity: .35; cursor: not-allowed; }
+
+    /* ── Rules page ── */
+    .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    @media (max-width: 800px) { .rules-grid { grid-template-columns: 1fr; } }
+    .rule-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .rule-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    .rule-card h4 i { color: var(--danger); }
+    .rule-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .rule-input {
+      flex: 1; background: var(--card2); border: 1px solid var(--border);
+      color: var(--text); padding: 8px 12px; border-radius: 8px; font-size: 13px; outline: none;
+    }
+    .rule-input:focus { border-color: var(--accent); }
+    .rule-list { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .rule-list-item {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--card2); padding: 7px 10px; border-radius: 8px;
+      font-size: 13px;
+    }
+    .rule-list-item span { flex: 1; }
+    .rule-list-item button { background: none; border: none; color: var(--danger); padding: 2px 4px; border-radius: 4px; }
+    .rule-list-item button:hover { background: rgba(248,81,73,.12); }
+
+    .app-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; }
+    .app-checkbox { display: flex; align-items: center; gap: 6px; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; user-select: none; font-size: 13px; }
+    .app-checkbox input { accent-color: var(--accent); width: 14px; height: 14px; }
+    .app-checkbox:hover { border-color: var(--accent); }
+
+    .apply-rules-bar { grid-column: 1/-1; display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+    .apply-rules-bar p { flex: 1; font-size: 13px; color: var(--muted); }
+
+    /* ── Connections ── */
+    .conn-state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+    .state-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .state-new        .state-dot { background: var(--muted); }
+    .state-established .state-dot { background: var(--accent); }
+    .state-classified .state-dot { background: var(--accent2); }
+    .state-blocked    .state-dot { background: var(--danger); }
+    .state-syn_sent   .state-dot { background: var(--warn); }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-state i { font-size: 52px; margin-bottom: 14px; opacity: .4; }
+    .empty-state h3 { font-size: 16px; margin-bottom: 6px; color: var(--text); }
+
+    /* ── Timeline ── */
+    .timeline-row { margin-bottom: 28px; }
+
+    /* ── Top IPs ── */
+    .top-ips-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 28px; }
+    @media (max-width: 800px) { .top-ips-row { grid-template-columns: 1fr; } }
+    .top-ip-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .top-ip-item:last-child { border: none; }
+    .top-ip-bar-wrap { flex: 1; background: var(--card2); border-radius: 99px; height: 5px; overflow: hidden; }
+    .top-ip-bar { height: 100%; background: var(--accent); border-radius: 99px; }
+    .top-ip-count { font-size: 12px; color: var(--muted); width: 50px; text-align: right; }
+
+    /* ── Tooltip ── */
+    [title] { cursor: help; }
+
+    /* ── Notification toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px 18px; font-size: 13px; box-shadow: var(--shadow);
+      transform: translateY(20px); opacity: 0; transition: all .3s; pointer-events: none; z-index: 999;
+    }
+    #toast.show { transform: none; opacity: 1; }
+    #toast.success { border-color: var(--accent2); color: var(--accent2); }
+    #toast.error   { border-color: var(--danger);  color: var(--danger); }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ SIDEBAR ═══════════════ -->
+<aside id="sidebar">
+  <div class="logo-area">
+    <i class="fa-solid fa-network-wired logo-icon"></i>
+    <span class="logo-text">Packet<span>DPI</span></span>
+  </div>
+  <nav>
+    <div class="nav-section">Analysis</div>
+    <div class="nav-item active" data-page="dashboard">
+      <i class="fa-solid fa-gauge-high"></i><span class="nav-label">Dashboard</span>
+    </div>
+    <div class="nav-item" data-page="upload">
+      <i class="fa-solid fa-upload"></i><span class="nav-label">Upload PCAP</span>
+    </div>
+    <div class="nav-section">Data</div>
+    <div class="nav-item" data-page="packets">
+      <i class="fa-solid fa-table-list"></i><span class="nav-label">Packets</span>
+    </div>
+    <div class="nav-item" data-page="connections">
+      <i class="fa-solid fa-diagram-project"></i><span class="nav-label">Connections</span>
+    </div>
+    <div class="nav-section">Security</div>
+    <div class="nav-item" data-page="rules">
+      <i class="fa-solid fa-shield-halved"></i><span class="nav-label">Blocking Rules</span>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    Deep Packet Inspection Engine<br>v1.0 &mdash; C++17 Backend
+  </div>
+</aside>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<div id="main">
+  <!-- Top bar -->
+  <div id="topbar">
+    <button class="toggle-btn" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+    <span id="page-title">Dashboard</span>
+    <div class="topbar-right">
+      <div id="status-badge">
+        <div class="pulse"></div>
+        <span id="status-text">Idle — upload a PCAP to start</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scrollable content -->
+  <div id="content">
+
+    <!-- ────────── DASHBOARD ────────── -->
+    <div class="page active" id="page-dashboard">
+      <div id="dash-empty" class="empty-state">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <h3>No data yet</h3>
+        <p>Upload a PCAP file to start the analysis</p>
+        <br>
+        <button class="btn btn-primary" onclick="goPage('upload')"><i class="fa-solid fa-upload"></i> &nbsp;Upload PCAP</button>
+      </div>
+
+      <div id="dash-data" style="display:none">
+        <!-- Stats cards -->
+        <div class="cards-row" id="stats-cards"></div>
+
+        <!-- Charts -->
+        <div class="charts-row">
+          <div class="chart-card">
+            <h4><i class="fa-solid fa-chart-pie"></i> &nbsp;App Distribution</h4>
+            <div class="chart-wrap"><canvas id="chartApps"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h4><i class="fa-solid fa-chart-donut"></i> &nbsp;Protocol Distribution</h4>
+            <div class="chart-wrap"><canvas id="chartProto"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="timeline-row">
+          <div class="chart-card">
+            <h4><i class="fa-solid fa-chart-line"></i> &nbsp;Packet Timeline</h4>
+            <div class="chart-wrap" style="height:180px"><canvas id="chartTimeline"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Top IPs -->
+        <div class="top-ips-row" id="top-ips-section">
+          <div class="chart-card">
+            <h4><i class="fa-solid fa-arrow-up-from-bracket"></i> &nbsp;Top Source IPs</h4>
+            <div id="top-src-list"></div>
+          </div>
+          <div class="chart-card">
+            <h4><i class="fa-solid fa-arrow-down-to-bracket"></i> &nbsp;Top Destination IPs</h4>
+            <div id="top-dst-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ────────── UPLOAD ────────── -->
+    <div class="page" id="page-upload">
+      <div id="upload-zone">
+        <i class="fa-solid fa-file-waveform"></i>
+        <h3>Drop your PCAP file here</h3>
+        <p>or click to browse &mdash; supports .pcap, .pcapng up to 500 MB</p>
+        <input type="file" id="file-input" accept=".pcap,.pcapng" />
+      </div>
+      <div id="upload-progress" style="display:none">
+        <p id="upload-msg" style="color:var(--muted);margin-bottom:8px;font-size:13px">Uploading…</p>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+      </div>
+      <div id="upload-log" style="font-size:12px;color:var(--muted);margin-top:14px;line-height:1.7"></div>
+    </div>
+
+    <!-- ────────── PACKETS ────────── -->
+    <div class="page" id="page-packets">
+      <div id="packets-empty" class="empty-state">
+        <i class="fa-solid fa-table-list"></i>
+        <h3>No packet data</h3>
+        <p>Upload a PCAP file first</p>
+      </div>
+      <div id="packets-data" style="display:none">
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h4>Packet List</h4>
+            <input class="search-input" id="pkt-search" placeholder="Search IP / domain…" oninput="loadPackets(1)" />
+            <select class="filter-select" id="pkt-proto" onchange="loadPackets(1)">
+              <option value="">All Protocols</option>
+              <option>TCP</option><option>UDP</option><option>ICMP</option>
+            </select>
+            <select class="filter-select" id="pkt-action" onchange="loadPackets(1)">
+              <option value="">All Actions</option>
+              <option value="FORWARD">Forward</option>
+              <option value="DROP">Drop</option>
+            </select>
+            <select class="filter-select" id="pkt-app" onchange="loadPackets(1)">
+              <option value="">All Apps</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Time</th><th>Protocol</th>
+                  <th>Source</th><th>Destination</th>
+                  <th>Flags</th><th>Length</th>
+                  <th>SNI / Domain</th><th>App</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="pkt-body"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <button id="pkt-prev" onclick="loadPackets(pktPage-1)">&#8249; Prev</button>
+            <span id="pkt-info">—</span>
+            <button id="pkt-next" onclick="loadPackets(pktPage+1)">Next &#8250;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ────────── CONNECTIONS ────────── -->
+    <div class="page" id="page-connections">
+      <div id="conn-empty" class="empty-state">
+        <i class="fa-solid fa-diagram-project"></i>
+        <h3>No connection data</h3>
+        <p>Upload a PCAP file first</p>
+      </div>
+      <div id="conn-data" style="display:none">
+        <div class="table-card">
+          <div class="table-toolbar">
+            <h4>Flow Table</h4>
+            <select class="filter-select" id="conn-sort" onchange="loadConnections()">
+              <option value="bytes">Sort: Bytes</option>
+              <option value="packets">Sort: Packets</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Protocol</th>
+                  <th>Source IP : Port</th>
+                  <th>Destination IP : Port</th>
+                  <th>Packets</th>
+                  <th>Bytes</th>
+                  <th>SNI</th>
+                  <th>App</th>
+                  <th>State</th>
+                  <th>Blocked</th>
+                </tr>
+              </thead>
+              <tbody id="conn-body"></tbody>
+            </table>
+          </div>
+          <div id="conn-count" style="padding:10px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--border)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ────────── RULES ────────── -->
+    <div class="page" id="page-rules">
+      <div style="margin-bottom:20px">
+        <h2 class="section-title"><i class="fa-solid fa-shield-halved"></i> Blocking Rules</h2>
+        <p style="font-size:13px;color:var(--muted)">Rules are applied during analysis. Add then click &ldquo;Apply Rules&rdquo;.</p>
+      </div>
+      <div class="rules-grid">
+
+        <!-- Block IPs -->
+        <div class="rule-card">
+          <h4><i class="fa-solid fa-ban"></i> Block IP Addresses</h4>
+          <div class="rule-input-row">
+            <input class="rule-input" id="ip-input" placeholder="e.g. 192.168.1.50" />
+            <button class="btn btn-danger btn-sm" onclick="addRule('ips','ip-input')"><i class="fa-solid fa-plus"></i></button>
+          </div>
+          <ul class="rule-list" id="ips-list"></ul>
+        </div>
+
+        <!-- Block Domains -->
+        <div class="rule-card">
+          <h4><i class="fa-solid fa-globe"></i> Block Domains</h4>
+          <div class="rule-input-row">
+            <input class="rule-input" id="domain-input" placeholder="e.g. tiktok, ads.google.com" />
+            <button class="btn btn-danger btn-sm" onclick="addRule('domains','domain-input')"><i class="fa-solid fa-plus"></i></button>
+          </div>
+          <ul class="rule-list" id="domains-list"></ul>
+        </div>
+
+        <!-- Block Ports -->
+        <div class="rule-card">
+          <h4><i class="fa-solid fa-plug"></i> Block Ports</h4>
+          <div class="rule-input-row">
+            <input class="rule-input" id="port-input" placeholder="e.g. 8080, 443" type="number" />
+            <button class="btn btn-danger btn-sm" onclick="addRule('ports','port-input')"><i class="fa-solid fa-plus"></i></button>
+          </div>
+          <ul class="rule-list" id="ports-list"></ul>
+        </div>
+
+        <!-- Block Apps -->
+        <div class="rule-card">
+          <h4><i class="fa-solid fa-mobile-screen"></i> Block Applications</h4>
+          <div class="app-checkboxes" id="app-checks"></div>
+        </div>
+
+        <!-- Apply bar -->
+        <div class="apply-rules-bar">
+          <p>Changes take effect after clicking Apply. The PCAP will be re-analyzed with the new rules.</p>
+          <button class="btn btn-danger" onclick="applyRules()"><i class="fa-solid fa-shield-halved"></i> &nbsp;Apply Rules</button>
+          <button class="btn btn-secondary" onclick="resetRules()"><i class="fa-solid fa-trash"></i> &nbsp;Clear All</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<div id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════ */
+let pktPage = 1;
+let pktTotal = 0;
+const PKT_LIMIT = 100;
+
+let rulesLocal = { ips:[], apps:[], domains:[], ports:[] };
+
+const APPS = ["YouTube","Facebook","Instagram","Netflix","Amazon","Microsoft",
+              "Apple","WhatsApp","Telegram","TikTok","Spotify","Zoom","Discord",
+              "GitHub","Cloudflare","Twitter","Google"];
+
+let chartApps, chartProto, chartTimeline;
+let statusInterval;
+
+/* ═══════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════ */
+function goPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.querySelector(`.nav-item[data-page="${name}"]`).classList.add('active');
+  document.getElementById('page-title').textContent =
+    name.charAt(0).toUpperCase() + name.slice(1).replace('-',' ');
+  if(name==='packets') loadPackets(1);
+  if(name==='connections') loadConnections();
+  if(name==='rules') initRules();
+  if(name==='dashboard') refreshDashboard();
+}
+
+document.querySelectorAll('.nav-item[data-page]').forEach(el=>{
+  el.addEventListener('click',()=>goPage(el.dataset.page));
+});
+
+function toggleSidebar(){
+  document.getElementById('sidebar').classList.toggle('collapsed');
+}
+
+/* ═══════════════════════════════════════════════════
+   UPLOAD
+═══════════════════════════════════════════════════ */
+const zone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+
+zone.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',e=>handleFile(e.target.files[0]));
+zone.addEventListener('dragover', e=>{e.preventDefault(); zone.classList.add('drag-over');});
+zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e=>{
+  e.preventDefault(); zone.classList.remove('drag-over');
+  if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+async function handleFile(file){
+  if(!file) return;
+  const zone = document.getElementById('upload-zone');
+  const prog = document.getElementById('upload-progress');
+  const bar  = document.getElementById('progress-bar');
+  const msg  = document.getElementById('upload-msg');
+  const log  = document.getElementById('upload-log');
+
+  zone.style.display='none';
+  prog.style.display='block';
+  log.innerHTML = '';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST','/api/upload');
+  xhr.upload.onprogress = e=>{
+    if(e.lengthComputable){
+      const pct = Math.round(e.loaded/e.total*100);
+      bar.style.width=pct+'%';
+      msg.textContent=`Uploading… ${pct}%`;
+    }
+  };
+  xhr.onload = ()=>{
+    msg.textContent='Analyzing PCAP…';
+    bar.style.width='100%';
+    log.innerHTML = `<span style="color:var(--accent2)">&#10003;</span> File "${file.name}" uploaded. DPI analysis running…`;
+    startPolling();
+  };
+  xhr.onerror = ()=> {
+    msg.textContent='Upload failed';
+    toast('Upload failed – check the server','error');
+  };
+  xhr.send(formData);
+}
+
+function startPolling(){
+  clearInterval(statusInterval);
+  statusInterval = setInterval(async ()=>{
+    const data = await api('/api/status');
+    updateStatusBadge(data);
+    document.getElementById('upload-log').innerHTML =
+      `<span style="color:${data.state==='error'?'var(--danger)':'var(--accent2)'}">
+      ${data.message}</span><br>
+      <div style="margin-top:8px" class="progress-bar-wrap">
+        <div class="progress-bar" style="width:${data.progress}%"></div>
+      </div>`;
+    if(data.state==='done'||data.state==='error'){
+      clearInterval(statusInterval);
+      if(data.state==='done'){
+        toast('Analysis complete!','success');
+        refreshDashboard();
+        goPage('dashboard');
+        // reset upload zone
+        document.getElementById('upload-zone').style.display='';
+        document.getElementById('upload-progress').style.display='none';
+      }
+    }
+  }, 700);
+}
+
+function updateStatusBadge(data){
+  const badge = document.getElementById('status-badge');
+  const text  = document.getElementById('status-text');
+  badge.className = 'topbar-right';
+  badge.id='status-badge';
+  badge.classList.add(data.state);
+  text.textContent = data.message || data.state;
+}
+
+/* ═══════════════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════════════ */
+async function refreshDashboard(){
+  const stats = await api('/api/stats');
+  if(stats.error){ document.getElementById('dash-empty').style.display=''; document.getElementById('dash-data').style.display='none'; return; }
+  document.getElementById('dash-empty').style.display='none';
+  document.getElementById('dash-data').style.display='';
+
+  // Stats cards
+  const cards = [
+    {icon:'fa-box-archive',    label:'Total Packets',  value:fmt(stats.total_packets),   cls:'blue'},
+    {icon:'fa-hard-drive',     label:'Total Bytes',    value:fmtBytes(stats.total_bytes), cls:'purple'},
+    {icon:'fa-check-circle',   label:'Forwarded',      value:fmt(stats.forwarded_packets??stats.total_packets), cls:'green'},
+    {icon:'fa-ban',            label:'Blocked',        value:fmt(stats.blocked_packets??0), cls:'red'},
+    {icon:'fa-link',           label:'TCP Packets',    value:fmt(stats.tcp_packets),      cls:'blue'},
+    {icon:'fa-signal',         label:'UDP Packets',    value:fmt(stats.udp_packets),      cls:'orange'},
+    {icon:'fa-ruler',          label:'Avg Pkt Size',   value:stats.avg_packet_size+' B',  cls:'purple'},
+    {icon:'fa-bolt',           label:'Max Pkt Size',   value:stats.max_packet_size+' B',  cls:'orange'},
+  ];
+  document.getElementById('stats-cards').innerHTML = cards.map(c=>`
+    <div class="card ${c.cls}">
+      <div class="card-icon"><i class="fa-solid ${c.icon}"></i></div>
+      <div class="card-value">${c.value}</div>
+      <div class="card-label">${c.label}</div>
+    </div>`).join('');
+
+  // App chart
+  const appData = stats.apps||{};
+  drawPie('chartApps', appData, chartApps, (c)=>{chartApps=c;});
+
+  // Protocol chart
+  drawPie('chartProto', stats.protocols||{}, chartProto, (c)=>{chartProto=c;});
+
+  // Timeline
+  const tl = stats.timeline||{};
+  const tlKeys = Object.keys(tl).sort();
+  const tlVals = tlKeys.map(k=>tl[k]);
+  const tlLabels = tlKeys.map(k=>{
+    const d=new Date(parseInt(k)*1000);
+    return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  });
+  drawLine('chartTimeline', tlLabels, tlVals, chartTimeline, (c)=>{chartTimeline=c;});
+
+  // Top IPs
+  drawTopIPs('top-src-list', stats.top_sources||{});
+  drawTopIPs('top-dst-list', stats.top_destinations||{});
+
+  // Populate app filter in packets page
+  const appSelect = document.getElementById('pkt-app');
+  appSelect.innerHTML='<option value="">All Apps</option>';
+  Object.keys(appData).sort().forEach(app=>{
+    const o=document.createElement('option'); o.value=app; o.textContent=app;
+    appSelect.appendChild(o);
+  });
+}
+
+function drawPie(canvasId, dataObj, existing, setFn){
+  const labels=Object.keys(dataObj);
+  const values=Object.values(dataObj);
+  const colors=genColors(labels.length);
+  const ctx=document.getElementById(canvasId).getContext('2d');
+  if(existing){existing.destroy();}
+  setFn(new Chart(ctx,{
+    type:'doughnut',
+    data:{labels,datasets:[{data:values,backgroundColor:colors,borderColor:'var(--card)',borderWidth:2}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'right',labels:{color:'var(--text)',font:{size:11},boxWidth:12,padding:10}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.raw)} (${pct(ctx.raw,values)})` }}
+      }
+    }
+  }));
+}
+
+function drawLine(canvasId, labels, data, existing, setFn){
+  const ctx=document.getElementById(canvasId).getContext('2d');
+  if(existing){existing.destroy();}
+  setFn(new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,.1)',fill:true,tension:.4,pointRadius:0,borderWidth:2}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{ticks:{color:'var(--muted)',maxTicksLimit:8},grid:{color:'var(--border)'}},
+        y:{ticks:{color:'var(--muted)'},grid:{color:'var(--border)'}}
+      },
+      plugins:{legend:{display:false}}
+    }
+  }));
+}
+
+function drawTopIPs(containerId, data){
+  const entries=Object.entries(data);
+  const max=entries[0]?entries[0][1]:1;
+  document.getElementById(containerId).innerHTML=entries.map(([ip,cnt])=>`
+    <div class="top-ip-item">
+      <span style="font-size:12px;font-family:monospace;min-width:120px">${ip}</span>
+      <div class="top-ip-bar-wrap"><div class="top-ip-bar" style="width:${Math.round(cnt/max*100)}%"></div></div>
+      <span class="top-ip-count">${fmt(cnt)}</span>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════
+   PACKETS
+═══════════════════════════════════════════════════ */
+async function loadPackets(page=1){
+  pktPage=page;
+  const search=document.getElementById('pkt-search').value;
+  const proto=document.getElementById('pkt-proto').value;
+  const action=document.getElementById('pkt-action').value;
+  const app=document.getElementById('pkt-app').value;
+  const params=new URLSearchParams({page,limit:PKT_LIMIT,search,proto,action,app});
+  const data=await api('/api/packets?'+params);
+  if(data.error){
+    document.getElementById('packets-empty').style.display='';
+    document.getElementById('packets-data').style.display='none';
+    return;
+  }
+  document.getElementById('packets-empty').style.display='none';
+  document.getElementById('packets-data').style.display='';
+  pktTotal=data.total;
+
+  const body=document.getElementById('pkt-body');
+  body.innerHTML=data.packets.map(p=>`
+    <tr>
+      <td style="color:var(--muted)">${p.id}</td>
+      <td style="font-size:11px;font-family:monospace">${fmtTime(p.timestamp)}</td>
+      <td><span class="tag tag-${(p.proto||'other').toLowerCase().substring(0,4)}">${p.proto}</span></td>
+      <td style="font-family:monospace;font-size:12px">${p.src_ip}${p.src_port!=='-'?':<b>'+p.src_port+'</b>':''}</td>
+      <td style="font-family:monospace;font-size:12px">${p.dst_ip}${p.dst_port!=='-'?':<b>'+p.dst_port+'</b>':''}</td>
+      <td>${(p.flags||[]).map(f=>`<span class="tag tag-flag">${f}</span>`).join('')}</td>
+      <td>${p.length} B</td>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.sni||''}">${p.sni?`<span style="color:var(--accent)">${p.sni}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${p.app&&p.app!=='Unknown'?`<span class="tag tag-app">${p.app}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td><span class="tag tag-${(p.action||'forward').toLowerCase()}">${p.action||'FORWARD'}</span></td>
+    </tr>`).join('');
+
+  const pages=Math.ceil(pktTotal/PKT_LIMIT);
+  document.getElementById('pkt-info').textContent=`Page ${page} of ${pages} (${fmt(pktTotal)} packets)`;
+  document.getElementById('pkt-prev').disabled=page<=1;
+  document.getElementById('pkt-next').disabled=page>=pages;
+}
+
+/* ═══════════════════════════════════════════════════
+   CONNECTIONS
+═══════════════════════════════════════════════════ */
+async function loadConnections(){
+  const sort=document.getElementById('conn-sort').value;
+  const data=await api('/api/connections?sort='+sort);
+  if(data.error){
+    document.getElementById('conn-empty').style.display='';
+    document.getElementById('conn-data').style.display='none';
+    return;
+  }
+  document.getElementById('conn-empty').style.display='none';
+  document.getElementById('conn-data').style.display='';
+
+  document.getElementById('conn-body').innerHTML=data.connections.map(c=>`
+    <tr>
+      <td><span class="tag tag-${(c.protocol||'other').toLowerCase().substring(0,4)}">${c.protocol}</span></td>
+      <td style="font-family:monospace;font-size:12px">${c.src_ip}:<b>${c.src_port}</b></td>
+      <td style="font-family:monospace;font-size:12px">${c.dst_ip}:<b>${c.dst_port}</b></td>
+      <td>${fmt(c.packets)}</td>
+      <td>${fmtBytes(c.bytes)}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${c.sni||''}">${c.sni?`<span style="color:var(--accent)">${c.sni}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${c.app&&c.app!=='Unknown'?`<span class="tag tag-app">${c.app}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${stateTag(c.state)}</td>
+      <td>${c.blocked?'<span class="badge-blocked">BLOCKED</span>':''}</td>
+    </tr>`).join('');
+
+  document.getElementById('conn-count').textContent =
+    `Showing ${data.connections.length} of ${data.total} flows`;
+}
+
+function stateTag(state){
+  const s=(state||'new').toLowerCase();
+  return `<span class="conn-state state-${s}"><span class="state-dot"></span>${(state||'NEW')}</span>`;
+}
+
+/* ═══════════════════════════════════════════════════
+   RULES
+═══════════════════════════════════════════════════ */
+async function initRules(){
+  const data=await api('/api/rules');
+  rulesLocal={ips:[...(data.ips||[])],apps:[...(data.apps||[])],domains:[...(data.domains||[])],ports:[...(data.ports||[])]};
+  renderRules();
+  renderAppChecks();
+}
+
+function renderRules(){
+  ['ips','domains','ports'].forEach(type=>{
+    document.getElementById(type+'-list').innerHTML=
+      rulesLocal[type].map((v,i)=>`
+        <li class="rule-list-item">
+          <i class="fa-solid fa-xmark" style="color:var(--muted)"></i>
+          <span>${v}</span>
+          <button onclick="removeRule('${type}',${i})" title="Remove"><i class="fa-solid fa-trash-can"></i></button>
+        </li>`).join('');
+  });
+}
+
+function renderAppChecks(){
+  document.getElementById('app-checks').innerHTML=APPS.map(app=>`
+    <label class="app-checkbox">
+      <input type="checkbox" value="${app}" ${rulesLocal.apps.includes(app)?'checked':''}
+        onchange="toggleApp('${app}',this.checked)">
+      ${app}
+    </label>`).join('');
+}
+
+function addRule(type, inputId){
+  const input=document.getElementById(inputId);
+  const val=input.value.trim();
+  if(!val) return;
+  if(!rulesLocal[type].includes(val)) rulesLocal[type].push(val);
+  input.value='';
+  renderRules();
+}
+
+function removeRule(type, idx){
+  rulesLocal[type].splice(idx,1);
+  renderRules();
+}
+
+function toggleApp(app, checked){
+  if(checked && !rulesLocal.apps.includes(app)) rulesLocal.apps.push(app);
+  if(!checked) rulesLocal.apps=rulesLocal.apps.filter(a=>a!==app);
+}
+
+async function applyRules(){
+  const res=await api('/api/rules','POST',rulesLocal);
+  toast('Rules applied – re-analyzing…','success');
+  startPolling();
+}
+
+async function resetRules(){
+  await api('/api/rules/reset','POST',{});
+  rulesLocal={ips:[],apps:[],domains:[],ports:[]};
+  renderRules();
+  renderAppChecks();
+  toast('All rules cleared');
+}
+
+/* ═══════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════ */
+async function api(url, method='GET', body){
+  const opts={method,headers:{}};
+  if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
+  try{
+    const r=await fetch(url,opts);
+    return await r.json();
+  }catch(e){return {error:e.message};}
+}
+
+function fmt(n){ return n==null?'—':Number(n).toLocaleString(); }
+function fmtBytes(b){
+  if(b==null)return'—';
+  if(b<1024)return b+' B';
+  if(b<1048576)return(b/1024).toFixed(1)+' KB';
+  if(b<1073741824)return(b/1048576).toFixed(1)+' MB';
+  return(b/1073741824).toFixed(2)+' GB';
+}
+function fmtTime(ts){
+  if(!ts)return'—';
+  const d=new Date(ts*1000);
+  return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:3});
+}
+function pct(val,arr){ const s=arr.reduce((a,b)=>a+b,0); return s?Math.round(val/s*100)+'%':'0%'; }
+function genColors(n){
+  const base=['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#39d353','#ff7b72','#ffa657','#79c0ff','#56d364','#e3b341','#ff7b72','#cae8ff','#7ee787'];
+  const out=[];
+  for(let i=0;i<n;i++) out.push(base[i%base.length]);
+  return out;
+}
+
+function toast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='show'+(type?' '+type:'');
+  setTimeout(()=>t.className='',3000);
+}
+
+/* Auto-refresh status badge */
+setInterval(async()=>{
+  const d=await api('/api/status');
+  if(d&&!d.error) updateStatusBadge(d);
+},3000);
+</script>
+</body>
+</html>
