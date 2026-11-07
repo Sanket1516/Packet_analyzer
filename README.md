@@ -1,6 +1,37 @@
+<div align="center">
+
 # DPI Engine: Deep Packet Inspection in C++17
 
-A deep packet inspection tool that reads PCAP captures, identifies the application behind each flow from the TLS SNI or HTTP Host header, applies blocking rules, and writes a filtered PCAP plus a traffic report. A small Flask web UI sits on top.
+![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
+![Multithreaded](https://img.shields.io/badge/pthreads-multi--threaded-555)
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-000000?logo=flask&logoColor=white)
+![Chart.js](https://img.shields.io/badge/Chart.js-FF6384?logo=chartdotjs&logoColor=white)
+![No dependencies](https://img.shields.io/badge/C%2B%2B_deps-none-2ea44f)
+
+</div>
+
+A deep packet inspection tool that reads PCAP captures, identifies the application behind each flow from the TLS SNI or HTTP Host header, applies blocking rules, and writes a filtered PCAP plus a traffic report. A small Flask web UI (**PacketDPI**) sits on top.
+
+<p align="center">
+  <img src="docs/screenshots/02-dashboard.jpg" alt="PacketDPI dashboard: 77 packets, 67 forwarded, 10 blocked, app and protocol charts" width="900" />
+</p>
+
+## Screenshots
+
+> Real captures: the sample capture from `generate_test_pcap.py` analysed with rules blocking `192.168.1.50`, `facebook`, YouTube and TikTok.
+
+| Packet list (forward / drop per packet) | Flow table with SNI and app |
+|:---:|:---:|
+| <img src="docs/screenshots/03-packets.jpg" alt="Packet list with flags, SNI, app and action" width="430" /> | <img src="docs/screenshots/04-connections.jpg" alt="Connections table with blocked flows" width="430" /> |
+| **Blocking rules** | **Start screen** |
+| <img src="docs/screenshots/05-rules.jpg" alt="Rules page: block IPs, domains, ports and applications" width="430" /> | <img src="docs/screenshots/00-empty.jpg" alt="Empty dashboard with Upload PCAP" width="430" /> |
+
+### Command-line engine
+
+<p align="center">
+  <img src="docs/screenshots/cli-report.jpg" alt="dpi_engine terminal report: rules, processing report, per-thread statistics, application breakdown and detected SNIs" width="620" />
+</p>
 
 ## Features
 
